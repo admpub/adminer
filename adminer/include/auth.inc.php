@@ -21,7 +21,7 @@ if ($auth) {
 	$driver = $auth["driver"];
 	$server = $auth["server"];
 	$username = $auth["username"];
-	$password = $auth["password"];
+	$password = (string) $auth["password"];
 	$db = $auth["db"];
 	set_password($driver, $server, $username, $password);
 	$_SESSION["db"][$driver][$server][$username][$db] = true;
@@ -108,24 +108,6 @@ function auth_error($exception = null) {
 	page_footer("auth");
 }
 
-function set_password($vendor, $server, $username, $password) {
-	$_SESSION["pwds"][$vendor][$server][$username] = ($_COOKIE["adminer_key"]
-		? array(encrypt_string($password, $_COOKIE["adminer_key"]))
-		: $password
-	);
-}
-
-function get_password() {
-	$return = get_session("pwds");
-	if (is_array($return)) {
-		$return = ($_COOKIE["adminer_key"]
-			? decrypt_string($return[0], $_COOKIE["adminer_key"])
-			: false
-		);
-	}
-	return $return;
-}
-
 if (isset($_GET["username"])) {
 	if (!class_exists("Min_DB")) {
 		unset($_SESSION["pwds"][DRIVER]);
@@ -137,12 +119,12 @@ if (isset($_GET["username"])) {
 	$connection = connect();
 }
 
+$driver = new Min_Driver($connection);
+
 if (!is_object($connection) || !$adminer->login($_GET["username"], get_password())) {
 	auth_error();
 	exit;
 }
-
-$driver = new Min_Driver($connection);
 
 if ($auth && $_POST["token"]) {
 	$_POST["token"] = $token; // reset token after explicit login

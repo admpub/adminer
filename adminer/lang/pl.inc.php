@@ -95,6 +95,7 @@ $translations = array(
 	
 	// thousands separator - must contain single byte
 	',' => ' ',
+	'0123456789' => '0123456789',
 	'Engine' => 'Składowanie',
 	'Collation' => 'Porównywanie znaków',
 	'Data Length' => 'Rozmiar danych',
@@ -304,7 +305,6 @@ $translations = array(
 	'Schema has been dropped.' => 'Schemat został usunięty.',
 	'Schema has been created.' => 'Schemat został utworzony.',
 	'Schema has been altered.' => 'Schemat został zmieniony.',
-	'schema' => 'schemat',
 	'Schema' => 'Schemat',
 	'Invalid schema.' => 'Nieprawidłowy schemat.',
 	

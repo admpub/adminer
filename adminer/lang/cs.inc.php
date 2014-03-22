@@ -95,6 +95,7 @@ $translations = array(
 	
 	// thousands separator - must contain single byte
 	',' => ' ',
+	'0123456789' => '0123456789',
 	'Engine' => 'Úložiště',
 	'Collation' => 'Porovnávání',
 	'Data Length' => 'Velikost dat',
@@ -165,6 +166,8 @@ $translations = array(
 	'Default values' => 'Výchozí hodnoty',
 	'Drop' => 'Odstranit',
 	'Are you sure?' => 'Opravdu?',
+	'Size' => 'Velikost',
+	'Compute' => 'Spočítat',
 	'Move up' => 'Přesunout nahoru',
 	'Move down' => 'Přesunout dolů',
 	'Remove' => 'Odebrat',
@@ -308,7 +311,6 @@ $translations = array(
 	'Schema has been dropped.' => 'Schéma bylo odstraněno.',
 	'Schema has been created.' => 'Schéma bylo vytvořeno.',
 	'Schema has been altered.' => 'Schéma bylo změněno.',
-	'schema' => 'schéma',
 	'Schema' => 'Schéma',
 	'Invalid schema.' => 'Nesprávné schéma.',
 	

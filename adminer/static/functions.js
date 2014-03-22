@@ -5,7 +5,9 @@
 * @param [bool]
 */
 function alterClass(el, className, enable) {
-	el.className = el.className.replace(RegExp('(^|\\s)' + className + '(\\s|$)'), '$2') + (enable ? ' ' + className : '');
+	if (el) {
+		el.className = el.className.replace(RegExp('(^|\\s)' + className + '(\\s|$)'), '$2') + (enable ? ' ' + className : '');
+	}
 }
 
 /** Toggle visibility
@@ -95,7 +97,7 @@ function parentTag(el, tag) {
 function trCheck(el) {
 	var tr = parentTag(el, 'tr');
 	alterClass(tr, 'checked', el.checked);
-	if (el.form && el.form['all']) {
+	if (el.form && el.form['all'] && el.form['all'].onclick) { // Opera treats form.all as document.all
 		el.form['all'].onclick();
 	}
 }
@@ -177,6 +179,14 @@ function tableClick(event, click) {
 	var el = getTarget(event);
 	while (!isTag(el, 'tr')) {
 		if (isTag(el, 'table|a|input|textarea')) {
+			if (el.origHref) {
+				// open('about:blank').document.write('<meta http-equiv="Refresh">') still passes the referer in Chrome
+				var href = el.href;
+				el.href = el.origHref;
+				setTimeout(function () {
+					el.href = href;
+				}, 0);
+			}
 			if (el.type != 'checkbox') {
 				return;
 			}
@@ -191,6 +201,21 @@ function tableClick(event, click) {
 		el.onclick && el.onclick();
 	}
 	trCheck(el);
+}
+
+/** Clean redirect links to simplify their copying
+* @param HTMLElement
+*/
+function selectLinks(table) {
+	var as = table.getElementsByTagName('a');
+	for (var i = 0; i < as.length; i++) {
+		var a = as[i];
+		var match = /^https?:\/\/www\.adminer\.org\/redirect\/\?url=(.+)/.exec(a.href); //! rewrites also links intentionally stored with http://www.adminer.org/redirect/?url=
+		if (match) {
+			a.origHref = a.href;
+			a.href = decodeURIComponent(match[1]);
+		}
+	}
 }
 
 var lastChecked;
@@ -659,6 +684,7 @@ function selectLoadMore(a, limit, loading) {
 			var tbody = document.createElement('tbody');
 			tbody.innerHTML = request.responseText;
 			document.getElementById('table').appendChild(tbody);
+			selectLinks(tbody);
 			if (tbody.children.length < limit) {
 				a.parentNode.removeChild(a);
 			} else {
