@@ -65,12 +65,20 @@ function bracket_escape($idf, $back = false) {
 	return strtr($idf, ($back ? array_flip($trans) : $trans));
 }
 
+/** Get connection charset
+* @param Min_DB
+* @return string
+*/
+function charset($connection) {
+	return (version_compare($connection->server_info, "5.5.3") > 0 ? "utf8mb4" : "utf8"); // SHOW CHARSET would require an extra query
+}
+
 /** Escape for HTML
 * @param string
 * @return string
 */
 function h($string) {
-	return htmlspecialchars(str_replace("\0", "", $string), ENT_QUOTES);
+	return str_replace("\0", "&#0;", htmlspecialchars($string, ENT_QUOTES));
 }
 
 /** Escape for TD
@@ -367,18 +375,28 @@ function unique_array($row, $indexes) {
 	}
 }
 
+/** Escape column key used in where()
+* @param string
+* @return string
+*/
+function escape_key($key) {
+	if (preg_match('(^([\w(]+)(' . str_replace("_", ".*", preg_quote(idf_escape("_"))) . ')([ \w)]+)$)', $key, $match)) { //! columns looking like functions
+		return $match[1] . idf_escape(idf_unescape($match[2])) . $match[3]; //! SQL injection
+	}
+	return idf_escape($key);
+}
+
 /** Create SQL condition from parsed query string
 * @param array parsed query string
 * @param array
 * @return string
 */
 function where($where, $fields = array()) {
-	global $jush;
+	global $connection, $jush;
 	$return = array();
-	$function_pattern = '(^[\w\(]+(' . str_replace("_", ".*", preg_quote(idf_escape("_"))) . ')?\)+$)'; //! columns looking like functions
 	foreach ((array) $where["where"] as $key => $val) {
 		$key = bracket_escape($key, 1); // 1 - back
-		$column = (preg_match($function_pattern, $key) ? $key : idf_escape($key)); //! SQL injection
+		$column = escape_key($key);
 		$return[] = $column
 			. (($jush == "sql" && preg_match('~^[0-9]*\\.[0-9]*$~', $val)) || $jush == "mssql"
 				? " LIKE " . q(addcslashes($val, "%_\\"))
@@ -386,11 +404,11 @@ function where($where, $fields = array()) {
 			) // LIKE because of floats but slow with ints, in MS SQL because of text
 		; //! enum and set
 		if ($jush == "sql" && preg_match('~char|text~', $fields[$key]["type"]) && preg_match("~[^ -@]~", $val)) { // not just [a-z] to catch non-ASCII characters
-			$return[] = "$column = " . q($val) . " COLLATE utf8_bin";
+			$return[] = "$column = " . q($val) . " COLLATE " . charset($connection) . "_bin";
 		}
 	}
 	foreach ((array) $where["null"] as $key) {
-		$return[] = (preg_match($function_pattern, $key) ? $key : idf_escape($key)) . " IS NULL";
+		$return[] = escape_key($key) . " IS NULL";
 	}
 	return implode(" AND ", $return);
 }
@@ -546,6 +564,7 @@ function redirect($location, $message = null) {
 * @param bool
 * @param bool
 * @param bool
+* @param string
 * @return bool
 */
 function query_redirect($query, $location, $message, $redirect = true, $execute = true, $failed = false, $time = "") {
@@ -747,12 +766,14 @@ function friendly_url($val) {
 */
 function hidden_fields($process, $ignore = array()) {
 	while (list($key, $val) = each($process)) {
-		if (is_array($val)) {
-			foreach ($val as $k => $v) {
-				$process[$key . "[$k]"] = $v;
+		if (!in_array($key, $ignore)) {
+			if (is_array($val)) {
+				foreach ($val as $k => $v) {
+					$process[$key . "[$k]"] = $v;
+				}
+			} else {
+				echo '<input type="hidden" name="' . h($key) . '" value="' . h($val) . '">';
 			}
-		} elseif (!in_array($key, $ignore)) {
-			echo '<input type="hidden" name="' . h($key) . '" value="' . h($val) . '">';
 		}
 	}
 }
@@ -1032,31 +1053,39 @@ function apply_sql_function($function, $column) {
 	return ($function ? ($function == "unixepoch" ? "DATETIME($column, '$function')" : ($function == "count distinct" ? "COUNT(DISTINCT " : strtoupper("$function(")) . "$column)") : $column);
 }
 
-/** Read password from file adminer.key in temporary directory or create one
-* @param bool
-* @return string or false if the file can not be created
+/** Get path of the temporary directory
+* @return string
 */
-function password_file($create) {
-	$dir = ini_get("upload_tmp_dir"); // session_save_path() may contain other storage path
-	if (!$dir) {
+function get_temp_dir() {
+	$return = ini_get("upload_tmp_dir"); // session_save_path() may contain other storage path
+	if (!$return) {
 		if (function_exists('sys_get_temp_dir')) {
-			$dir = sys_get_temp_dir();
+			$return = sys_get_temp_dir();
 		} else {
 			$filename = @tempnam("", ""); // @ - temp directory can be disabled by open_basedir
 			if (!$filename) {
 				return false;
 			}
-			$dir = dirname($filename);
+			$return = dirname($filename);
 			unlink($filename);
 		}
 	}
-	$filename = "$dir/adminer.key";
-	$return = @file_get_contents($filename); // @ - can not exist
+	return $return;
+}
+
+/** Read password from file adminer.key in temporary directory or create one
+* @param bool
+* @return string or false if the file can not be created
+*/
+function password_file($create) {
+	$filename = get_temp_dir() . "/adminer.key";
+	$return = @file_get_contents($filename); // @ - may not exist
 	if ($return || !$create) {
 		return $return;
 	}
 	$fp = @fopen($filename, "w"); // @ - can have insufficient rights //! is not atomic
 	if ($fp) {
+		chmod($filename, 0660);
 		$return = rand_string();
 		fwrite($fp, $return);
 		fclose($fp);
@@ -1098,9 +1127,9 @@ function select_value($val, $link, $field, $text_length) {
 			$link = "mailto:$val";
 		}
 		if ($protocol = is_url($val)) {
-			$link = ($protocol == "http" && $HTTPS
+			$link = (($protocol == "http" && $HTTPS) || preg_match('~WebKit~i', $_SERVER["HTTP_USER_AGENT"]) // WebKit supports noreferrer since 2009
 				? $val // HTTP links from HTTPS pages don't receive Referer automatically
-				: "$protocol://www.adminer.org/redirect/?url=" . urlencode($val) // intermediate page to hide Referer, may be changed to rel="noreferrer" in HTML5
+				: "$protocol://www.adminer.org/redirect/?url=" . urlencode($val) // intermediate page to hide Referer
 			);
 		}
 	}
