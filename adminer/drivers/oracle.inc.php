@@ -1,5 +1,5 @@
 <?php
-$drivers["oracle"] = "Oracle";
+$drivers["oracle"] = "Oracle (beta)";
 
 if (isset($_GET["oracle"])) {
 	$possible_drivers = array("OCI8", "PDO_OCI");
@@ -80,7 +80,7 @@ if (isset($_GET["oracle"])) {
 		class Min_Result {
 			var $_result, $_offset = 1, $num_rows;
 
-			function Min_Result($result) {
+			function __construct($result) {
 				$this->_result = $result;
 			}
 
@@ -175,8 +175,8 @@ if (isset($_GET["oracle"])) {
 		));
 	}
 
-	function limit1($query, $where) {
-		return " $query$where";
+	function limit1($table, $query, $where, $separator = "\n") {
+		return " $query$where"; //! limit
 	}
 
 	function db_collation($db, $collations) {

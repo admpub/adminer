@@ -1,11 +1,11 @@
 <?php
 
 /** Edit all fields containing "_html" by HTML editor WYMeditor and display the HTML in select
-* @link http://www.adminer.org/plugins/#use
+* @link https://www.adminer.org/plugins/#use
 * @uses WYMeditor, http://www.wymeditor.org/
-* @author Jakub Vrana, http://www.vrana.cz/
-* @license http://www.apache.org/licenses/LICENSE-2.0 Apache License, Version 2.0
-* @license http://www.gnu.org/licenses/gpl-2.0.html GNU General Public License, version 2 (one or other)
+* @author Jakub Vrana, https://www.vrana.cz/
+* @license https://www.apache.org/licenses/LICENSE-2.0 Apache License, Version 2.0
+* @license https://www.gnu.org/licenses/gpl-2.0.html GNU General Public License, version 2 (one or other)
 */
 class AdminerWymeditor {
 	/** @access protected */
@@ -15,20 +15,20 @@ class AdminerWymeditor {
 	* @param array
 	* @param string in format "skin: 'custom', preInit: function () { }"
 	*/
-	function AdminerWymeditor($scripts = array("jquery/jquery.js", "wymeditor/jquery.wymeditor.min.js"), $options = "") {
+	function __construct($scripts = array("jquery/jquery.js", "wymeditor/jquery.wymeditor.min.js"), $options = "") {
 		$this->scripts = $scripts;
 		$this->options = $options;
 	}
 
 	function head() {
 		foreach ($this->scripts as $script) {
-			echo "<script type='text/javascript' src='" . h($script) . "'></script>\n";
+			echo script_src($script);
 		}
 	}
 
 	function selectVal(&$val, $link, $field, $original) {
 		// copied from tinymce.php
-		if (preg_match("~_html~", $field["field"]) && $val != '&nbsp;') {
+		if (preg_match("~_html~", $field["field"]) && $val != '') {
 			$shortened = (substr($val, -10) == "<i>...</i>");
 			if ($shortened) {
 				$val = substr($val, 0, -10);
@@ -41,7 +41,7 @@ class AdminerWymeditor {
 			if (class_exists('DOMDocument')) { // close all opened tags
 				$dom = new DOMDocument;
 				if (@$dom->loadHTML("<meta http-equiv='Content-Type' content='text/html; charset=utf-8'></head>$val")) { // @ - $val can contain errors
-					$val = preg_replace('~.*<body[^>]*>(.*)</body>.*~is', '\\1', $dom->saveHTML());
+					$val = preg_replace('~.*<body[^>]*>(.*)</body>.*~is', '\1', $dom->saveHTML());
 				}
 			}
 		}
@@ -55,9 +55,9 @@ class AdminerWymeditor {
 				$lang = get_lang();
 				$lang = ($lang == "zh" || $lang == "zh-tw" ? "zh_cn" : $lang);
 			}
-			return "<textarea$attrs id='fields-" . h($field["field"]) . "' rows='12' cols='50'>" . h($value) . "</textarea><script type='text/javascript'>
+			return "<textarea$attrs id='fields-" . h($field["field"]) . "' rows='12' cols='50'>" . h($value) . "</textarea>" . script("
 jQuery('#fields-" . js_escape($field["field"]) . "').wymeditor({ updateSelector: '#form [type=\"submit\"]', lang: '$lang'" . ($this->options ? ", $this->options" : "") . " });
-</script>";
+");
 		}
 	}
 

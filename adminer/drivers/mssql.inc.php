@@ -5,10 +5,10 @@
 * @author Jakub Vrana
 */
 
-$drivers["mssql"] = "MS SQL";
+$drivers["mssql"] = "MS SQL (beta)";
 
 if (isset($_GET["mssql"])) {
-	$possible_drivers = array("SQLSRV", "MSSQL");
+	$possible_drivers = array("SQLSRV", "MSSQL", "PDO_DBLIB");
 	define("DRIVER", "mssql");
 	if (extension_loaded("sqlsrv")) {
 		class Min_DB {
@@ -24,7 +24,7 @@ if (isset($_GET["mssql"])) {
 			}
 
 			function connect($server, $username, $password) {
-				$this->_link = @sqlsrv_connect($server, array("UID" => $username, "PWD" => $password, "CharacterSet" => "UTF-8"));
+				$this->_link = @sqlsrv_connect(preg_replace('~:~', ',', $server), array("UID" => $username, "PWD" => $password, "CharacterSet" => "UTF-8"));
 				if ($this->_link) {
 					$info = sqlsrv_server_info($this->_link);
 					$this->server_info = $info['SQLServerVersion'];
@@ -93,7 +93,7 @@ if (isset($_GET["mssql"])) {
 		class Min_Result {
 			var $_result, $_offset = 0, $_fields, $num_rows;
 
-			function Min_Result($result) {
+			function __construct($result) {
 				$this->_result = $result;
 				// $this->num_rows = sqlsrv_num_rows($result); // available only in scrollable results
 			}
@@ -109,11 +109,11 @@ if (isset($_GET["mssql"])) {
 			}
 
 			function fetch_assoc() {
-				return $this->_convert(sqlsrv_fetch_array($this->_result, SQLSRV_FETCH_ASSOC, SQLSRV_SCROLL_NEXT));
+				return $this->_convert(sqlsrv_fetch_array($this->_result, SQLSRV_FETCH_ASSOC));
 			}
 
 			function fetch_row() {
-				return $this->_convert(sqlsrv_fetch_array($this->_result, SQLSRV_FETCH_NUMERIC, SQLSRV_SCROLL_NEXT));
+				return $this->_convert(sqlsrv_fetch_array($this->_result, SQLSRV_FETCH_NUMERIC));
 			}
 
 			function fetch_field() {
@@ -147,8 +147,10 @@ if (isset($_GET["mssql"])) {
 				$this->_link = @mssql_connect($server, $username, $password);
 				if ($this->_link) {
 					$result = $this->query("SELECT SERVERPROPERTY('ProductLevel'), SERVERPROPERTY('Edition')");
-					$row = $result->fetch_row();
-					$this->server_info = $this->result("sp_server_info 2", 2) . " [$row[0]] $row[1]";
+					if ($result) {
+						$row = $result->fetch_row();
+						$this->server_info = $this->result("sp_server_info 2", 2) . " [$row[0]] $row[1]";
+					}
 				} else {
 					$this->error = mssql_get_last_message();
 				}
@@ -164,7 +166,7 @@ if (isset($_GET["mssql"])) {
 			}
 
 			function query($query, $unbuffered = false) {
-				$result = mssql_query($query, $this->_link); //! $unbuffered
+				$result = @mssql_query($query, $this->_link); //! $unbuffered
 				$this->error = "";
 				if (!$result) {
 					$this->error = mssql_get_last_message();
@@ -186,7 +188,7 @@ if (isset($_GET["mssql"])) {
 			}
 
 			function next_result() {
-				return mssql_next_result($this->_result);
+				return mssql_next_result($this->_result->_result);
 			}
 
 			function result($query, $field = 0) {
@@ -201,7 +203,7 @@ if (isset($_GET["mssql"])) {
 		class Min_Result {
 			var $_result, $_offset = 0, $_fields, $num_rows;
 
-			function Min_Result($result) {
+			function __construct($result) {
 				$this->_result = $result;
 				$this->num_rows = mssql_num_rows($result);
 			}
@@ -234,8 +236,21 @@ if (isset($_GET["mssql"])) {
 			}
 		}
 
-	}
+	} elseif (extension_loaded("pdo_dblib")) {
+		class Min_DB extends Min_PDO {
+			var $extension = "PDO_DBLIB";
 
+			function connect($server, $username, $password) {
+				$this->dsn("dblib:charset=utf8;host=" . str_replace(":", ";unix_socket=", preg_replace('~:(\d)~', ';port=\1', $server)), $username, $password);
+				return true;
+			}
+
+			function select_db($database) {
+				// database selection is separated from the connection so dbname in DSN can't be used
+				return $this->query("USE " . idf_escape($database));
+			}
+		}
+	}
 
 
 	class Min_Driver extends Min_SQL {
@@ -288,20 +303,20 @@ if (isset($_GET["mssql"])) {
 	}
 
 	function get_databases() {
-		return get_vals("EXEC sp_databases");
+		return get_vals("SELECT name FROM sys.databases WHERE name NOT IN ('master', 'tempdb', 'model', 'msdb')");
 	}
 
 	function limit($query, $where, $limit, $offset = 0, $separator = " ") {
 		return ($limit !== null ? " TOP (" . ($limit + $offset) . ")" : "") . " $query$where"; // seek later
 	}
 
-	function limit1($query, $where) {
-		return limit($query, $where, 1);
+	function limit1($table, $query, $where, $separator = "\n") {
+		return limit($query, $where, 1, 0, $separator);
 	}
 
 	function db_collation($db, $collations) {
 		global $connection;
-		return $connection->result("SELECT collation_name FROM sys.databases WHERE name =  " . q($db));
+		return $connection->result("SELECT collation_name FROM sys.databases WHERE name = " . q($db));
 	}
 
 	function engines() {
@@ -348,7 +363,7 @@ if (isset($_GET["mssql"])) {
 
 	function fields($table) {
 		$return = array();
-		foreach (get_rows("SELECT c.*, t.name type, d.definition [default]
+		foreach (get_rows("SELECT c.max_length, c.precision, c.scale, c.name, c.is_nullable, c.is_identity, c.collation_name, t.name type, CAST(d.definition as text) [default]
 FROM sys.all_columns c
 JOIN sys.all_objects o ON c.object_id = o.object_id
 JOIN sys.types t ON c.user_type_id = t.user_type_id
@@ -393,7 +408,7 @@ WHERE OBJECT_NAME(i.object_id) = " . q($table)
 
 	function view($name) {
 		global $connection;
-		return array("select" => preg_replace('~^(?:[^[]|\\[[^]]*])*\\s+AS\\s+~isU', '', $connection->result("SELECT VIEW_DEFINITION FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = SCHEMA_NAME() AND TABLE_NAME = " . q($name))));
+		return array("select" => preg_replace('~^(?:[^[]|\[[^]]*])*\s+AS\s+~isU', '', $connection->result("SELECT VIEW_DEFINITION FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = SCHEMA_NAME() AND TABLE_NAME = " . q($name))));
 	}
 
 	function collations() {
@@ -410,7 +425,7 @@ WHERE OBJECT_NAME(i.object_id) = " . q($table)
 
 	function error() {
 		global $connection;
-		return nl_br(h(preg_replace('~^(\\[[^]]*])+~m', '', $connection->error)));
+		return nl_br(h(preg_replace('~^(\[[^]]*])+~m', '', $connection->error)));
 	}
 
 	function create_database($db, $collation) {
@@ -441,7 +456,7 @@ WHERE OBJECT_NAME(i.object_id) = " . q($table)
 			if (!$val) {
 				$alter["DROP"][] = " COLUMN $column";
 			} else {
-				$val[1] = preg_replace("~( COLLATE )'(\\w+)'~", "\\1\\2", $val[1]);
+				$val[1] = preg_replace("~( COLLATE )'(\\w+)'~", '\1\2', $val[1]);
 				if ($field[0] == "") {
 					$alter["ADD"][] = "\n  " . implode("", $val) . ($table == "" ? substr($foreign[$val[0]], 16 + strlen($val[0])) : ""); // 16 - strlen("  FOREIGN KEY ()")
 				} else {
@@ -548,7 +563,7 @@ WHERE s.xtype = 'TR' AND s.name = " . q($name)
 		); // triggers are not schema-scoped
 		$return = reset($rows);
 		if ($return) {
-			$return["Statement"] = preg_replace('~^.+\\s+AS\\s+~isU', '', $return["text"]); //! identifiers, comments
+			$return["Statement"] = preg_replace('~^.+\s+AS\s+~isU', '', $return["text"]); //! identifiers, comments
 		}
 		return $return;
 	}
