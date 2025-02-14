@@ -71,9 +71,9 @@ class Adminer {
 	}
 
 	function loginForm() {
-		echo "<table cellspacing='0'>\n";
-		echo $this->loginFormField('username', '<tr><th>' . lang('Username') . '<td>', '<input type="hidden" name="auth[driver]" value="server"><input name="auth[username]" id="username" value="' . h($_GET["username"]) . '" autocapitalize="off">' . script("focus(qs('#username'));"));
-		echo $this->loginFormField('password', '<tr><th>' . lang('Password') . '<td>', '<input type="password" name="auth[password]">' . "\n");
+		echo "<table cellspacing='0' class='layout'>\n";
+		echo $this->loginFormField('username', '<tr><th>' . lang('Username') . '<td>', '<input type="hidden" name="auth[driver]" value="server"><input name="auth[username]" id="username" value="' . h($_GET["username"]) . '" autocomplete="username" autocapitalize="off">' . script("focus(qs('#username'));"));
+		echo $this->loginFormField('password', '<tr><th>' . lang('Password') . '<td>', '<input type="password" name="auth[password]" autocomplete="current-password">' . "\n");
 		echo "</table>\n";
 		echo "<p><input type='submit' value='" . lang('Login') . "'>\n";
 		echo checkbox("auth[permanent]", 1, $_COOKIE["adminer_permanent"], lang('Permanent login')) . "\n";
@@ -341,6 +341,7 @@ ORDER BY ORDINAL_POSITION", null, "") as $row) { //! requires MySQL 5
 	}
 
 	function selectSearchProcess($fields, $indexes) {
+		global $driver;
 		$return = array();
 		foreach ((array) $_GET["where"] as $key => $where) {
 			$col = $where["col"];
@@ -356,11 +357,11 @@ ORDER BY ORDINAL_POSITION", null, "") as $row) { //! requires MySQL 5
 						} else {
 							$text_type = preg_match('~char|text|enum|set~', $field["type"]);
 							$value = $this->processInput($field, (!$op && $text_type && preg_match('~^[^%]+$~', $val) ? "%$val%" : $val));
-							$conds[] = $name . ($value == "NULL" ? " IS" . ($op == ">=" ? " NOT" : "") . " $value"
+							$conds[] = $driver->convertSearch($name, $val, $field) . ($value == "NULL" ? " IS" . ($op == ">=" ? " NOT" : "") . " $value"
 								: (in_array($op, $this->operators) || $op == "=" ? " $op $value"
 								: ($text_type ? " LIKE $value"
 								: " IN (" . str_replace(",", "', '", $value) . ")"
-							))); //! can issue "Illegal mix of collations" for columns in other character sets - solve by CONVERT($name using utf8)
+							)));
 							if ($key < 0 && $val == "0") {
 								$conds[] = "$name IS NULL";
 							}
@@ -451,6 +452,9 @@ ORDER BY ORDINAL_POSITION", null, "") as $row) { //! requires MySQL 5
 		return " <span class='time'>" . @date("H:i:s") . "</span><!--\n" . str_replace("--", "--><!-- ", $query) . "\n" . ($time ? "($time)\n" : "") . "-->";
 	}
 
+	function editRowPrint($table, $fields, $row, $update) {
+	}
+
 	function editFunctions($field) {
 		$return = array();
 		if ($field["null"] && preg_match('~blob~', $field["type"])) {
@@ -485,7 +489,7 @@ qsl('div').onclick = whisperClick;", "")
 			);
 		}
 		if (like_bool($field)) {
-			return '<input type="checkbox" value="' . h($value ? $value : 1) . '"' . (preg_match('~^(1|t|true|y|yes|on)$~i', $value) ? ' checked' : '') . "$attrs>";
+			return '<input type="checkbox" value="1"' . (preg_match('~^(1|t|true|y|yes|on)$~i', $value) ? ' checked' : '') . "$attrs>";
 		}
 		$hint = "";
 		if (preg_match('~time~', $field["type"])) {
@@ -517,7 +521,7 @@ qsl('div').onclick = whisperClick;", "")
 		}
 		$return = ($field["type"] == "bit" && preg_match('~^[0-9]+$~', $value) ? $return : q($return));
 		if ($value == "" && like_bool($field)) {
-			$return = "0";
+			$return = "'0'";
 		} elseif ($value == "" && ($field["null"] || !preg_match('~char|text~', $field["type"]))) {
 			$return = "NULL";
 		} elseif (preg_match('~^(md5|sha1)$~', $function)) {
@@ -537,7 +541,7 @@ qsl('div').onclick = whisperClick;", "")
 	function dumpDatabase($db) {
 	}
 
-	function dumpTable() {
+	function dumpTable($table, $style, $is_view = 0) {
 		echo "\xef\xbb\xbf"; // UTF-8 byte order mark
 	}
 
@@ -586,11 +590,11 @@ qsl('div').onclick = whisperClick;", "")
 				foreach ($servers[""] as $username => $password) {
 					if ($password !== null) {
 						if ($first) {
-							echo "<p id='logins'>";
+							echo "<ul id='logins'>";
 							echo script("mixin(qs('#logins'), {onmouseover: menuOver, onmouseout: menuOut});");
 							$first = false;
 						}
-						echo "<a href='" . h(auth_url($vendor, "", $username)) . "'>" . ($username != "" ? h($username) : "<i>" . lang('empty') . "</i>") . "</a><br>\n";
+						echo "<li><a href='" . h(auth_url($vendor, "", $username)) . "'>" . ($username != "" ? h($username) : "<i>" . lang('empty') . "</i>") . "</a>\n";
 					}
 				}
 			}
@@ -654,5 +658,3 @@ qsl('div').onclick = whisperClick;", "")
 	}
 
 }
-
-$adminer = (function_exists('adminer_object') ? adminer_object() : new Adminer);

@@ -2,6 +2,7 @@
 $translations = array(
 	'Login' => 'Login',
 	'Logout successful.' => 'Abmeldung erfolgreich.',
+	'Thanks for using Adminer, consider <a href="https://www.adminer.org/en/donation/">donating</a>.' => 'Danke, dass Sie Adminer genutzt haben. <a href="https://www.adminer.org/de/donation/">Spenden willkommen!</a>',
 	'Invalid credentials.' => 'Ungültige Anmelde-Informationen.',
 	'Server' => 'Server',
 	'Username' => 'Benutzer',
@@ -279,7 +280,7 @@ $translations = array(
 	'If you did not send this request from Adminer then close this page.' => 'Wenn Sie diese Anfrage nicht von Adminer gesendet haben, schließen Sie diese Seite.',
 	'You can upload a big SQL file via FTP and import it from server.' => 'Sie können eine große SQL-Datei per FTP hochladen und dann vom Server importieren.',
 	'You are offline.' => 'Sie sind offline.',
-	'You have no privileges to update this table.' => 'Sie haben keine Rechte, um diese Tabelle zu aktualisieren.' ,
+	'You have no privileges to update this table.' => 'Sie haben keine Rechte, um diese Tabelle zu aktualisieren.',
 	'Saving' => 'Speichere',
 	'yes' => 'ja',
 	'no' => 'nein',

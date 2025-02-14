@@ -733,7 +733,7 @@ legend{
 }
 
 /* tables */
-#tables{
+#logins, #tables{
 	border-bottom: none;
 	line-height: 20px;
 	padding: 18px 0;
@@ -752,9 +752,16 @@ legend{
 	font-size: 13px;
 }
 
-#tables a[title] {
+#tables .structure, #tables .view {
 	float: none;
 	display: block;
+	color: inherit;
+	font-size: 14px;
+}
+
+#logins a {
+	display: block;
+	padding: 5px 18px 9px;
 	color: inherit;
 	font-size: 14px;
 }
@@ -765,6 +772,7 @@ legend{
 	color: #fba;
 }
 
+#logins a:hover,
 #tables a[title]:hover,
 #tables a.active,
 #tables a.select:hover + a,

@@ -48,7 +48,9 @@ if (!$error && $_POST) {
 			if (is_object($result)) {
 				select($result, $connection2);
 			} else {
-				echo "<p class='message'>" . lang('Routine has been called, %d row(s) affected.', $affected) . "\n";
+				echo "<p class='message'>" . lang('Routine has been called, %d row(s) affected.', $affected)
+					. " <span class='time'>" . @date("H:i:s") . "</span>\n" // @ - time zone may be not set
+				;
 			}
 		} while ($connection->next_result());
 		
@@ -62,7 +64,7 @@ if (!$error && $_POST) {
 <form action="" method="post">
 <?php
 if ($in) {
-	echo "<table cellspacing='0'>\n";
+	echo "<table cellspacing='0' class='layout'>\n";
 	foreach ($in as $key) {
 		$field = $routine["fields"][$key];
 		$name = $field["field"];

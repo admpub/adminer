@@ -29,6 +29,9 @@ function version() {
 * @return string
 */
 function idf_unescape($idf) {
+	if (!preg_match('~^[`\'"[]~', $idf)) {
+		return $idf;
+	}
 	$last = substr($idf, -1);
 	return str_replace($last . $last, $last, substr($idf, 1, -1));
 }
@@ -62,7 +65,7 @@ function number_type() {
 * @return null modified in place
 */
 function remove_slashes($process, $filter = false) {
-	if (get_magic_quotes_gpc()) {
+	if (function_exists("get_magic_quotes_gpc") && get_magic_quotes_gpc()) {
 		while (list($key, $val) = each($process)) {
 			foreach ($val as $k => $v) {
 				unset($process[$key][$k]);
@@ -351,7 +354,7 @@ function set_password($vendor, $server, $username, $password) {
 }
 
 /** Get password from session
-* @return string
+* @return string or null for missing password or false for expired password
 */
 function get_password() {
 	$return = get_session("pwds");
@@ -479,10 +482,10 @@ function where($where, $fields = array()) {
 		$key = bracket_escape($key, 1); // 1 - back
 		$column = escape_key($key);
 		$return[] = $column
-			. ($jush == "sql" && preg_match('~^[0-9]*\.[0-9]*$~', $val) ? " LIKE " . q(addcslashes($val, "%_\\"))
-				: ($jush == "mssql" ? " LIKE " . q(preg_replace('~[_%[]~', '[\0]', $val))
+			. ($jush == "sql" && is_numeric($val) && preg_match('~\.~', $val) ? " LIKE " . q($val) // LIKE because of floats but slow with ints
+				: ($jush == "mssql" ? " LIKE " . q(preg_replace('~[_%[]~', '[\0]', $val)) // LIKE because of text
 				: " = " . unconvert_field($fields[$key], q($val))
-			)) // LIKE because of floats but slow with ints, in MS SQL because of text
+			))
 		; //! enum and set
 		if ($jush == "sql" && preg_match('~char|text~', $fields[$key]["type"]) && preg_match("~[^ -@]~", $val)) { // not just [a-z] to catch non-ASCII characters
 			$return[] = "$column = " . q($val) . " COLLATE " . charset($connection) . "_bin";
@@ -566,8 +569,12 @@ function restart_session() {
 * @return null
 */
 function stop_session($force = false) {
-	if (!ini_bool("session.use_cookies") || ($force && @ini_set("session.use_cookies", false) !== false)) { // @ - may be disabled
+	$use_cookies = ini_bool("session.use_cookies");
+	if (!$use_cookies || $force) {
 		session_write_close(); // improves concurrency if a user opens several pages at once, may be restarted later
+		if ($use_cookies && @ini_set("session.use_cookies", false) === false) { // @ - may be disabled
+			session_start();
+		}
 	}
 }
 
@@ -717,12 +724,19 @@ function format_time($start) {
 	return lang('%.3f s', max(0, microtime(true) - $start));
 }
 
+/** Get relative REQUEST_URI
+* @return string
+*/
+function relative_uri() {
+	return str_replace(":", "%3a", preg_replace('~^[^?]*/([^?]*)~', '\1', $_SERVER["REQUEST_URI"]));
+}
+
 /** Remove parameter from query string
 * @param string
 * @return string
 */
 function remove_from_uri($param = "") {
-	return substr(preg_replace("~(?<=[?&])($param" . (SID ? "" : "|" . session_name()) . ")=[^&]*&~", '', "$_SERVER[REQUEST_URI]&"), 0, -1);
+	return substr(preg_replace("~(?<=[?&])($param" . (SID ? "" : "|" . session_name()) . ")=[^&]*&~", '', relative_uri() . "&"), 0, -1);
 }
 
 /** Generate page number for pagination
@@ -815,7 +829,7 @@ function shorten_utf8($string, $length = 80, $suffix = "") {
 	if (!preg_match("(^(" . repeat_pattern("[\t\r\n -\x{10FFFF}]", $length) . ")($)?)u", $string, $match)) { // ~s causes trash in $match[2] under some PHP versions, (.|\n) is slow
 		preg_match("(^(" . repeat_pattern("[\t\r\n -~]", $length) . ")($)?)", $string, $match);
 	}
-	return h($match[1]) . $suffix . (isset($match[2]) ? "" : "<i>...</i>");
+	return h($match[1]) . $suffix . (isset($match[2]) ? "" : "<i>…</i>");
 }
 
 /** Format decimal number
@@ -838,19 +852,18 @@ function friendly_url($val) {
 /** Print hidden fields
 * @param array
 * @param array
+* @param string
 * @return bool
 */
-function hidden_fields($process, $ignore = array()) {
+function hidden_fields($process, $ignore = array(), $prefix = '') {
 	$return = false;
-	while (list($key, $val) = each($process)) {
+	foreach ($process as $key => $val) {
 		if (!in_array($key, $ignore)) {
 			if (is_array($val)) {
-				foreach ($val as $k => $v) {
-					$process[$key . "[$k]"] = $v;
-				}
+				hidden_fields($val, array(), $key);
 			} else {
 				$return = true;
-				echo '<input type="hidden" name="' . h($key) . '" value="' . h($val) . '">';
+				echo '<input type="hidden" name="' . h($prefix ? $prefix . "[$key]" : $key) . '" value="' . h($val) . '">';
 			}
 		}
 	}
@@ -960,7 +973,7 @@ function input($field, $value, $function) {
 			}
 		} elseif (preg_match('~blob|bytea|raw|file~', $field["type"]) && ini_bool("file_uploads")) {
 			echo "<input type='file' name='fields-$name'>";
-		} elseif (($text = preg_match('~text|lob~', $field["type"])) || preg_match("~\n~", $value)) {
+		} elseif (($text = preg_match('~text|lob|memo~i', $field["type"])) || preg_match("~\n~", $value)) {
 			if ($text && $jush != "sqlite") {
 				$attrs .= " cols='50' rows='12'";
 			} else {
@@ -1021,7 +1034,7 @@ function process_input($field) {
 		return null;
 	}
 	if ($function == "orig") {
-		return ($field["on_update"] == "CURRENT_TIMESTAMP" ? idf_escape($field["field"]) : false);
+		return (preg_match('~^CURRENT_TIMESTAMP~i', $field["on_update"]) ? idf_escape($field["field"]) : false);
 	}
 	if ($function == "NULL") {
 		return "NULL";
@@ -1105,7 +1118,7 @@ function dump_headers($identifier, $multi_table = false) {
 	$return = $adminer->dumpHeaders($identifier, $multi_table);
 	$output = $_POST["output"];
 	if ($output != "text") {
-		header("Content-Disposition: attachment; filename=" . $adminer->dumpFilename($identifier) . ".$return" . ($output != "file" && !preg_match('~[^0-9a-z]~', $output) ? ".$output" : ""));
+		header("Content-Disposition: attachment; filename=" . $adminer->dumpFilename($identifier) . ".$return" . ($output != "file" && preg_match('~^[0-9a-z]+$~', $output) ? ".$output" : ""));
 	}
 	session_write_close();
 	ob_flush();
@@ -1119,7 +1132,7 @@ function dump_headers($identifier, $multi_table = false) {
 */
 function dump_csv($row) {
 	foreach ($row as $key => $val) {
-		if (preg_match("~[\"\n,;\t]~", $val) || $val === "") {
+		if (preg_match('~["\n,;\t]|^0|\.\d*0$~', $val) || $val === "") {
 			$row[$key] = '"' . str_replace('"', '""', $val) . '"';
 		}
 	}
@@ -1401,15 +1414,16 @@ function on_help($command, $side = 0) {
 * @param bool
 * @return null
 */
-function edit_form($TABLE, $fields, $row, $update) {
+function edit_form($table, $fields, $row, $update) {
 	global $adminer, $jush, $token, $error;
-	$table_name = $adminer->tableName(table_status1($TABLE, true));
+	$table_name = $adminer->tableName(table_status1($table, true));
 	page_header(
 		($update ? lang('Edit') : lang('Insert')),
 		$error,
-		array("select" => array($TABLE, $table_name)),
+		array("select" => array($table, $table_name)),
 		$table_name
 	);
+	$adminer->editRowPrint($table, $fields, $row, $update);
 	if ($row === false) {
 		echo "<p class='error'>" . lang('No rows.') . "\n";
 	}
@@ -1419,7 +1433,7 @@ function edit_form($TABLE, $fields, $row, $update) {
 	if (!$fields) {
 		echo "<p class='error'>" . lang('You have no privileges to update this table.') . "\n";
 	} else {
-		echo "<table cellspacing='0'>" . script("qsl('table').onkeydown = editingKeydown;");
+		echo "<table cellspacing='0' class='layout'>" . script("qsl('table').onkeydown = editingKeydown;");
 
 		foreach ($fields as $name => $field) {
 			echo "<tr><th>" . $adminer->fieldName($field);
@@ -1433,7 +1447,7 @@ function edit_form($TABLE, $fields, $row, $update) {
 			$value = ($row !== null
 				? ($row[$name] != "" && $jush == "sql" && preg_match("~enum|set~", $field["type"])
 					? (is_array($row[$name]) ? array_sum($row[$name]) : +$row[$name])
-					: $row[$name]
+					: (is_bool($row[$name]) ? +$row[$name] : $row[$name])
 				)
 				: (!$update && $field["auto_increment"]
 					? ""
@@ -1445,12 +1459,15 @@ function edit_form($TABLE, $fields, $row, $update) {
 			}
 			$function = ($_POST["save"]
 				? (string) $_POST["function"][$name]
-				: ($update && $field["on_update"] == "CURRENT_TIMESTAMP"
+				: ($update && preg_match('~^CURRENT_TIMESTAMP~i', $field["on_update"])
 					? "now"
 					: ($value === false ? null : ($value !== null ? '' : 'NULL'))
 				)
 			);
-			if (preg_match("~time~", $field["type"]) && $value == "CURRENT_TIMESTAMP") {
+			if (!$_POST && !$update && $value == $field["default"] && preg_match('~^[\w.]+\(~', $value)) {
+				$function = "SQL";
+			}
+			if (preg_match("~time~", $field["type"]) && preg_match('~^CURRENT_TIMESTAMP~i', $value)) {
 				$value = "";
 				$function = "now";
 			}
@@ -1476,7 +1493,7 @@ function edit_form($TABLE, $fields, $row, $update) {
 				? lang('Save and continue edit')
 				: lang('Save and insert next')
 			) . "' title='Ctrl+Shift+Enter'>\n";
-			echo ($update ? script("qsl('input').onclick = function () { return !ajaxForm(this.form, '" . lang('Saving') . "...', this); };") : "");
+			echo ($update ? script("qsl('input').onclick = function () { return !ajaxForm(this.form, '" . lang('Saving') . "…', this); };") : "");
 		}
 	}
 	echo ($update ? "<input type='submit' name='delete' value='" . lang('Delete') . "'>" . confirm() . "\n"

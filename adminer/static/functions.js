@@ -14,17 +14,17 @@ function qs(selector, context) {
 * @return HTMLElement
 */
 function qsl(selector, context) {
-	var els = qsa(selector, context || document);
+	var els = qsa(selector, context);
 	return els[els.length - 1];
 }
 
 /** Get all elements by selector
 * @param string
-* @param HTMLElement
+* @param [HTMLElement] defaults to document
 * @return NodeList
 */
 function qsa(selector, context) {
-	return context.querySelectorAll(selector);
+	return (context || document).querySelectorAll(selector);
 }
 
 /** Return a function calling fn with the next arguments
@@ -143,7 +143,7 @@ function selectValue(select) {
 */
 function isTag(el, tag) {
 	var re = new RegExp('^(' + tag + ')$', 'i');
-	return re.test(el.tagName);
+	return el && re.test(el.tagName);
 }
 
 /** Get parent node with specified tag name
@@ -205,7 +205,7 @@ function formCheck(name) {
 /** Check all rows in <table class="checkable">
 */
 function tableCheck() {
-	var inputs = qsa('table.checkable td:first-child input', document);
+	var inputs = qsa('table.checkable td:first-child input');
 	for (var i=0; i < inputs.length; i++) {
 		trCheck(inputs[i]);
 	}
@@ -444,7 +444,8 @@ function selectSearch(name) {
 	var divs = qsa('div', el);
 	for (var i=0; i < divs.length; i++) {
 		var div = divs[i];
-		if (isTag(div.firstChild, 'select') && selectValue(div.firstChild) == name) {
+		var el = qs('[name$="[col]"]', div);
+		if (el && selectValue(el) == name) {
 			break;
 		}
 	}
@@ -491,6 +492,9 @@ function bodyKeydown(event, button) {
 		if (button) {
 			target.form[button].click();
 		} else {
+			if (target.form.onsubmit) {
+				target.form.onsubmit();
+			}
 			target.form.submit();
 		}
 		target.focus();
@@ -540,20 +544,22 @@ function editingKeydown(event) {
 */
 function functionChange() {
 	var input = this.form[this.name.replace(/^function/, 'fields')];
-	if (selectValue(this)) {
-		if (input.origType === undefined) {
-			input.origType = input.type;
-			input.origMaxLength = input.getAttribute('data-maxlength');
+	if (input) { // undefined with the set data type
+		if (selectValue(this)) {
+			if (input.origType === undefined) {
+				input.origType = input.type;
+				input.origMaxLength = input.getAttribute('data-maxlength');
+			}
+			input.removeAttribute('data-maxlength');
+			input.type = 'text';
+		} else if (input.origType) {
+			input.type = input.origType;
+			if (input.origMaxLength >= 0) {
+				input.setAttribute('data-maxlength', input.origMaxLength);
+			}
 		}
-		input.removeAttribute('data-maxlength');
-		input.type = 'text';
-	} else if (input.origType) {
-		input.type = input.origType;
-		if (input.origMaxLength >= 0) {
-			input.setAttribute('data-maxlength', input.origMaxLength);
-		}
+		oninput({target: input});
 	}
-	oninput({target: input});
 	helpClose();
 }
 
@@ -667,6 +673,7 @@ function ajaxForm(form, message, button) {
 		if (window.jush) {
 			jush.highlight_tag(qsa('code', qs('#ajaxstatus')), 0);
 		}
+		messagesPrint(qs('#ajaxstatus'));
 	}, data, message);
 }
 
@@ -702,7 +709,7 @@ function selectClick(event, text, warning) {
 		}
 	};
 	var pos = event.rangeOffset;
-	var value = td.firstChild.alt || td.textContent || td.innerText;
+	var value = (td.firstChild && td.firstChild.alt) || td.textContent || td.innerText;
 	input.style.width = Math.max(td.clientWidth - 14, 20) + 'px'; // 14 = 2 * (td.border + td.padding + input.border)
 	if (text) {
 		var rows = 1;

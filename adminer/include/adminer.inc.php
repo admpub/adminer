@@ -108,7 +108,7 @@ class Adminer {
 		$return = array();
 		$filename = "adminer.css";
 		if (file_exists($filename)) {
-			$return[] = $filename;
+			$return[] = "$filename?v=" . crc32(file_get_contents($filename));
 		}
 		return $return;
 	}
@@ -118,11 +118,11 @@ class Adminer {
 	*/
 	function loginForm() {
 		global $drivers;
-		echo "<table cellspacing='0'>\n";
-		echo $this->loginFormField('driver', '<tr><th>' . lang('System') . '<td>', html_select("auth[driver]", $drivers, DRIVER) . "\n");
+		echo "<table cellspacing='0' class='layout'>\n";
+		echo $this->loginFormField('driver', '<tr><th>' . lang('System') . '<td>', html_select("auth[driver]", $drivers, DRIVER, "loginDriver(this);") . "\n");
 		echo $this->loginFormField('server', '<tr><th>' . lang('Server') . '<td>', '<input name="auth[server]" value="' . h(SERVER) . '" title="hostname[:port]" placeholder="localhost" autocapitalize="off">' . "\n");
-		echo $this->loginFormField('username', '<tr><th>' . lang('Username') . '<td>', '<input name="auth[username]" id="username" value="' . h($_GET["username"]) . '" autocapitalize="off">' . script("focus(qs('#username'));"));
-		echo $this->loginFormField('password', '<tr><th>' . lang('Password') . '<td>', '<input type="password" name="auth[password]">' . "\n");
+		echo $this->loginFormField('username', '<tr><th>' . lang('Username') . '<td>', '<input name="auth[username]" id="username" value="' . h($_GET["username"]) . '" autocomplete="username" autocapitalize="off">' . script("focus(qs('#username')); qs('#username').form['auth[driver]'].onchange();"));
+		echo $this->loginFormField('password', '<tr><th>' . lang('Password') . '<td>', '<input type="password" name="auth[password]" autocomplete="current-password">' . "\n");
 		echo $this->loginFormField('db', '<tr><th>' . lang('Database') . '<td>', '<input name="auth[db]" value="' . h($_GET["db"]) . '" autocapitalize="off">' . "\n");
 		echo "</table>\n";
 		echo "<p><input type='submit' value='" . lang('Login') . "'>\n";
@@ -310,6 +310,7 @@ class Adminer {
 	* @return null
 	*/
 	function tableStructurePrint($fields) {
+		echo "<div class='scrollable'>\n";
 		echo "<table cellspacing='0' class='nowrap'>\n";
 		echo "<thead><tr><th>" . lang('Column') . "<td>" . lang('Type') . (support("comment") ? "<td>" . lang('Comment') : "") . "</thead>\n";
 		foreach ($fields as $field) {
@@ -322,6 +323,7 @@ class Adminer {
 			echo "\n";
 		}
 		echo "</table>\n";
+		echo "</div>\n";
 	}
 
 	/** Print list of indexes on table in tabular format
@@ -478,7 +480,7 @@ class Adminer {
 		echo "</script>\n";
 		echo "</div></fieldset>\n";
 	}
-
+	
 	/** Print command box in select
 	* @return bool whether to print default commands
 	*/
@@ -561,6 +563,7 @@ class Adminer {
 					foreach ($fields as $name => $field) {
 						if ((preg_match('~^[-\d.' . (preg_match('~IN$~', $val["op"]) ? ',' : '') . ']+$~', $val["val"]) || !preg_match('~' . number_type() . '|bit~', $field["type"]))
 							&& (!preg_match("~[\x80-\xFF]~", $val["val"]) || preg_match('~char|text|enum|set~', $field["type"]))
+							&& (!preg_match('~date|timestamp~', $field["type"]) || preg_match('~^\d+-\d+-\d+~', $val["val"]))
 						) {
 							$cols[] = $prefix . $driver->convertSearch(idf_escape($name), $val, $field) . $cond;
 						}
@@ -639,7 +642,7 @@ class Adminer {
 			$history[$_GET["db"]] = array();
 		}
 		if (strlen($query) > 1e6) {
-			$query = preg_replace('~[\x80-\xFF]+$~', '', substr($query, 0, 1e6)) . "\n..."; // [\x80-\xFF] - valid UTF-8, \n - can end by one-line comment
+			$query = preg_replace('~[\x80-\xFF]+$~', '', substr($query, 0, 1e6)) . "\n…"; // [\x80-\xFF] - valid UTF-8, \n - can end by one-line comment
 		}
 		$history[$_GET["db"]][] = array($query, time(), $time); // not DB - $_GET["db"] is changed in database.inc.php //! respect $_GET["ns"]
 		$sql_id = "sql-" . count($history[$_GET["db"]]);
@@ -656,6 +659,16 @@ class Adminer {
 		;
 	}
 
+	/** Print before edit form
+	* @param string
+	* @param array
+	* @param mixed
+	* @param bool
+	* @return null
+	*/
+	function editRowPrint($table, $fields, $row, $update) {
+	}
+
 	/** Functions displayed in edit form
 	* @param array single field from fields()
 	* @return array
@@ -663,19 +676,20 @@ class Adminer {
 	function editFunctions($field) {
 		global $edit_functions;
 		$return = ($field["null"] ? "NULL/" : "");
+		$update = isset($_GET["select"]) || where($_GET);
 		foreach ($edit_functions as $key => $functions) {
-			if (!$key || (!isset($_GET["call"]) && (isset($_GET["select"]) || where($_GET)))) { // relative functions
+			if (!$key || (!isset($_GET["call"]) && $update)) { // relative functions
 				foreach ($functions as $pattern => $val) {
 					if (!$pattern || preg_match("~$pattern~", $field["type"])) {
 						$return .= "/$val";
 					}
 				}
-				if ($key && !preg_match('~set|blob|bytea|raw|file~', $field["type"])) {
-					$return .= "/SQL";
-				}
+			}
+			if ($key && !preg_match('~set|blob|bytea|raw|file|bool~', $field["type"])) {
+				$return .= "/SQL";
 			}
 		}
-		if ($field["auto_increment"] && !isset($_GET["select"]) && !where($_GET)) {
+		if ($field["auto_increment"] && !$update) {
 			$return = lang('Auto Increment');
 		}
 		return explode("/", $return);
@@ -843,7 +857,7 @@ class Adminer {
 						foreach ($row as $key => $val) {
 							$field = $fields[$key];
 							$row[$key] = ($val !== null
-								? unconvert_field($field, preg_match(number_type(), $field["type"]) && $val != '' ? $val : q(($val === false ? 0 : $val)))
+								? unconvert_field($field, preg_match(number_type(), $field["type"]) && !preg_match('~\[~', $field["full_type"]) && is_numeric($val) ? $val : q(($val === false ? 0 : $val)))
 								: "NULL"
 							);
 						}
@@ -925,24 +939,24 @@ class Adminer {
 </h1>
 <?php
 		if ($missing == "auth") {
-			$first = true;
+			$output = "";
 			foreach ((array) $_SESSION["pwds"] as $vendor => $servers) {
 				foreach ($servers as $server => $usernames) {
 					foreach ($usernames as $username => $password) {
 						if ($password !== null) {
-							if ($first) {
-								echo "<p id='logins'>" . script("mixin(qs('#logins'), {onmouseover: menuOver, onmouseout: menuOut});");
-								$first = false;
-							}
 							$dbs = $_SESSION["db"][$vendor][$server][$username];
 							foreach (($dbs ? array_keys($dbs) : array("")) as $db) {
-								echo "<a href='" . h(auth_url($vendor, $server, $username, $db)) . "'>($drivers[$vendor]) " . h($username . ($server != "" ? "@" . $this->serverName($server) : "") . ($db != "" ? " - $db" : "")) . "</a><br>\n";
+								$output .= "<li><a href='" . h(auth_url($vendor, $server, $username, $db)) . "'>($drivers[$vendor]) " . h($username . ($server != "" ? "@" . $this->serverName($server) : "") . ($db != "" ? " - $db" : "")) . "</a>\n";
 							}
 						}
 					}
 				}
 			}
+			if ($output) {
+				echo "<ul id='logins'>\n$output</ul>\n" . script("mixin(qs('#logins'), {onmouseover: menuOver, onmouseout: menuOut});");
+			}
 		} else {
+			$tables = array();
 			if ($_GET["ns"] !== "" && !$missing && DB != "") {
 				$connection->select_db(DB);
 				$tables = table_status('', true);
@@ -997,7 +1011,7 @@ bodyLoad('<?php echo (is_object($connection) ? preg_replace('~^(\d\.?\d).*~s', '
 	function databasesPrint($missing) {
 		global $adminer, $connection;
 		$databases = $this->databases();
-		if ($databases && !in_array(DB, $databases)) {
+		if (DB && $databases && !in_array(DB, $databases)) {
 			array_unshift($databases, DB);
 		}
 		?>
@@ -1011,8 +1025,8 @@ bodyLoad('<?php echo (is_object($connection) ? preg_replace('~^(\d\.?\d).*~s', '
 			: "<input name='db' value='" . h(DB) . "' autocapitalize='off'>\n"
 		);
 		echo "<input type='submit' value='" . lang('Use') . "'" . ($databases ? " class='hidden'" : "") . ">\n";
-		if ($missing != "db" && DB != "" && $connection->select_db(DB)) {
-			if (support("scheme")) {
+		if (support("scheme")) {
+			if ($missing != "db" && DB != "" && $connection->select_db(DB)) {
 				echo "<br>" . lang('Schema') . ": <select name='ns'>" . optionlist(array("" => "") + $adminer->schemas(), $_GET["ns"]) . "</select>$db_events";
 				if ($_GET["ns"] != "") {
 					set_schema($_GET["ns"]);
@@ -1037,7 +1051,10 @@ bodyLoad('<?php echo (is_object($connection) ? preg_replace('~^(\d\.?\d).*~s', '
 		foreach ($tables as $table => $status) {
 			$name = $this->tableName($status);
 			if ($name != "") {
-				echo '<li><a href="' . h(ME) . 'select=' . urlencode($table) . '"' . bold($_GET["select"] == $table || $_GET["edit"] == $table, "select") . ">" . lang('select') . "</a> ";
+				echo '<li><a href="' . h(ME) . 'select=' . urlencode($table) . '"'
+					. bold($_GET["select"] == $table || $_GET["edit"] == $table, "select")
+					. " title='" . lang('Select data') . "'>" . lang('select') . "</a> "
+				;
 				echo (support("table") || support("indexes")
 					? '<a href="' . h(ME) . 'table=' . urlencode($table) . '"'
 						. bold(in_array($table, array($_GET["table"], $_GET["create"], $_GET["indexes"], $_GET["foreign"], $_GET["trigger"])), (is_view($status) ? "view" : "structure"))
@@ -1049,9 +1066,4 @@ bodyLoad('<?php echo (is_object($connection) ? preg_replace('~^(\d\.?\d).*~s', '
 		echo "</ul>\n";
 	}
 
-}
-
-$adminer = (function_exists('adminer_object') ? adminer_object() : new Adminer);
-if ($adminer->operators === null) {
-	$adminer->operators = $operators;
 }

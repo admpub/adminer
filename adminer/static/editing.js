@@ -15,12 +15,16 @@ function bodyLoad(version, maria) {
 					key = 0;
 					if (maria) {
 						for (var i = 1; i < obj.length; i++) {
-							obj[i] = obj[i].replace(/\.html/, '/');
+							obj[i] = obj[i]
+								.replace(/\.html/, '/')
+								.replace(/-type-syntax/, '-data-types')
+								.replace(/numeric-(data-types)/, '$1-$&')
+								.replace(/#statvar_.*/, '#$$1')
+							;
 						}
 					}
 				}
-				obj[key] = obj[key]
-					.replace(/dev\.mysql\.com\/doc\/mysql\/en\//, (maria ? 'mariadb.com/kb/en/library/' : '$&')) // MariaDB
+				obj[key] = (maria ? obj[key].replace(/dev\.mysql\.com\/doc\/mysql\/en\//, 'mariadb.com/kb/en/library/') : obj[key]) // MariaDB
 					.replace(/\/doc\/mysql/, '/doc/refman/' + version) // MySQL
 					.replace(/\/docs\/current/, '/docs/' + version) // PostgreSQL
 				;
@@ -30,7 +34,7 @@ function bodyLoad(version, maria) {
 			jush.custom_links = jushLinks;
 		}
 		jush.highlight_tag('code', 0);
-		var tags = qsa('textarea', document);
+		var tags = qsa('textarea');
 		for (var i = 0; i < tags.length; i++) {
 			if (/(^|\s)jush-/.test(tags[i].className)) {
 				var pre = jush.textarea(tags[i]);
@@ -68,12 +72,25 @@ function typePassword(el, disable) {
 }
 
 /** Install toggle handler
+* @param [HTMLElement]
 */
-function messagesPrint() {
-	var els = qsa('.toggle', document);
+function messagesPrint(el) {
+	var els = qsa('.toggle', el);
 	for (var i = 0; i < els.length; i++) {
 		els[i].onclick = partial(toggle, els[i].getAttribute('href').substr(1));
 	}
+}
+
+
+
+/** Hide or show some login rows for selected driver	
+* @param HTMLSelectElement	
+*/	
+function loginDriver(driver) {	
+	var trs = parentTag(driver, 'table').rows;	
+	var disabled = /sqlite/.test(selectValue(driver));	
+	alterClass(trs[1], 'hidden', disabled);	// 1 - row with server
+	trs[1].getElementsByTagName('input')[0].disabled = disabled;	
 }
 
 
@@ -190,6 +207,33 @@ function idfEscape(s) {
 
 
 
+/** Set up event handlers for edit_fields().
+*/
+function editFields() {
+	var els = qsa('[name$="[field]"]');
+	for (var i = 0; i < els.length; i++) {
+		els[i].oninput = function () {
+			editingNameChange.call(this);
+			if (!this.defaultValue) {
+				editingAddRow.call(this);
+			}
+		}
+	}
+	els = qsa('[name$="[length]"]');
+	for (var i = 0; i < els.length; i++) {
+		mixin(els[i], {onfocus: editingLengthFocus, oninput: editingLengthChange});
+	}
+	els = qsa('[name$="[type]"]');
+	for (var i = 0; i < els.length; i++) {
+		mixin(els[i], {
+			onfocus: function () { lastType = selectValue(this); },
+			onchange: editingTypeChange,
+			onmouseover: function (event) { helpMouseover.call(this, event, getTarget(event).value, 1) },
+			onmouseout: helpMouseout
+		});
+	}
+}
+
 /** Handle clicks on fields editing
 * @param MouseEvent
 * @return boolean false to cancel action
@@ -197,7 +241,7 @@ function idfEscape(s) {
 function editingClick(event) {
 	var el = getTarget(event);
 	if (!isTag(el, 'input')) {
-		el = parentTag(target, 'label');
+		el = parentTag(el, 'label');
 		el = el && qs('input', el);
 	}
 	if (el) {
@@ -272,7 +316,7 @@ function editingNameChange() {
 }
 
 /** Add table row for next field
-* @param boolean
+* @param [boolean]
 * @return boolean false
 * @this HTMLInputElement
 */
@@ -444,14 +488,6 @@ function columnShow(checked, column) {
 	}
 }
 
-/** Hide column with default values in narrow window
-*/
-function editingHideDefaults() {
-	if (innerWidth < document.documentElement.scrollWidth) {
-		qs('#form')['defaults'].checked = false;
-	}
-}
-
 /** Display partition options
 * @this HTMLSelectElement
 */
@@ -473,14 +509,14 @@ function partitionNameChange() {
 }
 
 /** Show or hide comment fields
+* @param HTMLInputElement
 * @param [boolean] whether to focus Comment if checked
-* @this HTMLInputElement
 */
-function editingCommentsClick(focus) {
-	var comment = this.form['Comment'];
-	columnShow(this.checked, 6);
-	alterClass(comment, 'hidden', !this.checked);
-	if (focus && this.checked) {
+function editingCommentsClick(el, focus) {
+	var comment = el.form['Comment'];
+	columnShow(el.checked, 6);
+	alterClass(comment, 'hidden', !el.checked);
+	if (focus && el.checked) {
 		comment.focus();
 	}
 }
@@ -509,8 +545,8 @@ function dumpClick(event) {
 * @this HTMLSelectElement
 */
 function foreignAddRow() {
-	this.onchange = function () { };
 	var row = cloneNode(parentTag(this, 'tr'));
+	this.onchange = function () { };
 	var selects = qsa('select', row);
 	for (var i=0; i < selects.length; i++) {
 		selects[i].name = selects[i].name.replace(/\]/, '1$&');
@@ -525,8 +561,8 @@ function foreignAddRow() {
 * @this HTMLSelectElement
 */
 function indexesAddRow() {
-	this.onchange = function () { };
 	var row = cloneNode(parentTag(this, 'tr'));
+	this.onchange = function () { };
 	var selects = qsa('select', row);
 	for (var i=0; i < selects.length; i++) {
 		selects[i].name = selects[i].name.replace(/indexes\[\d+/, '$&1');
@@ -595,6 +631,23 @@ function indexesAddColumn(prefix) {
 
 
 
+/** Updates the form action
+* @param HTMLFormElement
+* @param string
+*/
+function sqlSubmit(form, root) {
+	if (encodeURIComponent(form['query'].value).length < 2e3) {
+		form.action = root
+			+ '&sql=' + encodeURIComponent(form['query'].value)
+			+ (form['limit'].value ? '&limit=' + +form['limit'].value : '')
+			+ (form['error_stops'].checked ? '&error_stops=1' : '')
+			+ (form['only_errors'].checked ? '&only_errors=1' : '')
+		;
+	}
+}
+
+
+
 /** Handle changing trigger time or event
 * @param RegExp
 * @param string
@@ -605,7 +658,7 @@ function triggerChange(tableRe, table, form) {
 	if (tableRe.test(form['Trigger'].value)) {
 		form['Trigger'].value = table + '_' + (selectValue(form['Timing']).charAt(0) + formEvent.charAt(0)).toLowerCase();
 	}
-	alterClass(form['Of'], 'hidden', formEvent != 'UPDATE OF');
+	alterClass(form['Of'], 'hidden', !/ OF/.test(formEvent));
 }
 
 
